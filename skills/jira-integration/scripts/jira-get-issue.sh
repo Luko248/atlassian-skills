@@ -17,7 +17,7 @@ if [[ -z "${JIRA_URL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
 fi
 
 CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${MCP_VALIDATE_SSL:-true}" == "false" ]]; then
+if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
   CURL_OPTS+=(-k)
 fi
 

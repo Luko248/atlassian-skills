@@ -24,7 +24,7 @@ if (( LIMIT < 1 )); then LIMIT=1; fi
 if (( LIMIT > 100 )); then LIMIT=100; fi
 
 CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${MCP_VALIDATE_SSL:-true}" == "false" ]]; then
+if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
   CURL_OPTS+=(-k)
 fi
 

@@ -6,7 +6,7 @@
 # Example: jira-get-attachment-content.sh 12345
 #
 # Returns: JSON with base64-encoded content and metadata
-# Max size: 10 MB (matches MCP server limit)
+# Max size: 10 MB
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ if [[ -z "${JIRA_URL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
 fi
 
 CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${MCP_VALIDATE_SSL:-true}" == "false" ]]; then
+if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
   CURL_OPTS+=(-k)
 fi
 

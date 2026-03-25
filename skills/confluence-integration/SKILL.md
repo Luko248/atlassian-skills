@@ -3,7 +3,7 @@ name: confluence-integration
 description: >
   Atlassian Confluence integration skill (READ-ONLY). Use this skill when the user asks about
   Confluence pages, wants to search Confluence with CQL, retrieve page content,
-  or any other Confluence-related task. Provides 2 read-only tools matching the AIS Support MCP Server.
+  or any other Confluence-related task. Provides 2 read-only tools.
   NEVER write, create, update, or delete anything in Confluence.
 ---
 
@@ -24,25 +24,10 @@ Works identically on **Linux**, **macOS**, and **Windows** (Git Bash, WSL, Cygwi
 
 ## Prerequisites
 
-Credentials must be set in one of these `.env` files (first found wins):
+Credentials must be set in a `.env` file (first found wins):
 
-1. **Global:** `~/.ais-support-mcp/.env`
-2. **Global alt:** `~/.env.ais-support-mcp`
-3. **Global fallback:** `~/.env`
-4. **Project-level:** `.env` in the git repository root
-
-### OS-specific global `.env` locations
-
-| OS | `~` resolves to | Example path |
-|---|---|---|
-| **macOS** | `/Users/<username>` | `/Users/john/.ais-support-mcp/.env` |
-| **Linux** | `/home/<username>` | `/home/john/.ais-support-mcp/.env` |
-| **Windows (Git Bash)** | `/c/Users/<username>` | `/c/Users/john/.ais-support-mcp/.env` |
-| **Windows (WSL)** | `/home/<username>` | `/home/john/.ais-support-mcp/.env` |
-| **Windows (native path)** | `C:\Users\<username>` | `C:\Users\john\.ais-support-mcp\.env` |
-
-If no `.env` file is found at any location, the script will output a detailed error
-message with OS-specific path examples telling the user to create one.
+1. **Global:** `~/.env`
+2. **Project-level:** `.env` in the git repository root
 
 Required variables:
 ```
@@ -53,7 +38,7 @@ CONFLUENCE_API_TOKEN=<your-bearer-token>
 Optional:
 ```
 CONFLUENCE_USERNAME=user@company.com
-MCP_VALIDATE_SSL=false          # set to false to skip SSL verification
+VALIDATE_SSL=false          # set to false to skip SSL verification
 ```
 
 ## Available Tools
@@ -152,4 +137,4 @@ bash skills/confluence-integration/scripts/confluence-get-page.sh 22222
 - Scripts exit with code 1 and write JSON error to stderr if credentials are missing
 - HTTP errors from Confluence are returned as-is in the JSON response
 - CQL queries are properly URL-encoded automatically
-- All scripts respect `MCP_VALIDATE_SSL=false` for self-signed certificates
+- All scripts respect `VALIDATE_SSL=false` for self-signed certificates
