@@ -14,10 +14,38 @@
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
+# Allowlist of environment variable names this loader will set
+readonly _ALLOWED_ENV_KEYS="JIRA_URL JIRA_USERNAME JIRA_API_TOKEN CONFLUENCE_URL CONFLUENCE_USERNAME CONFLUENCE_API_TOKEN VALIDATE_SSL"
+
+_is_allowed_key() {
+  local key="$1"
+  local allowed
+  for allowed in $_ALLOWED_ENV_KEYS; do
+    [[ "$key" == "$allowed" ]] && return 0
+  done
+  return 1
+}
+
 _load_env_file() {
   local file="$1"
   if [[ ! -r "$file" ]]; then
     return 1
+  fi
+
+  # Warn if .env is world-readable (skip on Windows where stat behaves differently)
+  if command -v stat &>/dev/null && [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+    local perms
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      perms=$(stat -f '%Lp' "$file" 2>/dev/null || echo "")
+    else
+      perms=$(stat -c '%a' "$file" 2>/dev/null || echo "")
+    fi
+    if [[ -n "$perms" ]]; then
+      local other_read=$(( perms % 10 ))
+      if (( other_read >= 4 )); then
+        echo "# WARNING: $file is world-readable (mode $perms). Run: chmod 600 $file" >&2
+      fi
+    fi
   fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -25,15 +53,26 @@ _load_env_file() {
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
     # Match KEY=VALUE (with optional quotes)
-    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_.]*)=(.*)$ ]]; then
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
       local key="${BASH_REMATCH[1]}"
       local val="${BASH_REMATCH[2]}"
+
+      # Only load allowlisted keys
+      if ! _is_allowed_key "$key"; then
+        continue
+      fi
 
       # Strip surrounding quotes
       if [[ "$val" =~ ^\"(.*)\"$ ]]; then
         val="${BASH_REMATCH[1]}"
       elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
         val="${BASH_REMATCH[1]}"
+      fi
+
+      # Reject values containing control characters (prevent header injection)
+      if [[ "$val" =~ [[:cntrl:]] ]]; then
+        echo "# WARNING: Skipping $key — value contains control characters" >&2
+        continue
       fi
 
       # Only set if not already in environment (real env wins)
@@ -103,3 +142,30 @@ if [[ "$_ENV_LOADED" != "true" ]]; then
 
   export _ENV_LOADED="true"
 fi
+
+# Validate that URL values look like URLs (no shell metacharacters)
+_validate_url() {
+  local name="$1" val="$2"
+  local url_pattern='^https?://[a-zA-Z0-9._:@/%?&=+-]+$'
+  if [[ ! "$val" =~ $url_pattern ]]; then
+    echo "{\"error\": \"$name contains invalid characters — must be a valid HTTP(S) URL\"}" >&2
+    exit 1
+  fi
+}
+
+# Validate that token values contain no control characters or whitespace
+_validate_token() {
+  local name="$1" val="$2"
+  if [[ "$val" =~ [[:cntrl:]] || "$val" =~ [[:space:]] ]]; then
+    echo "{\"error\": \"$name contains invalid characters (control chars or whitespace)\"}" >&2
+    exit 1
+  fi
+}
+
+# Build common curl options with security defaults
+_build_curl_opts() {
+  CURL_OPTS=(-s -S --max-time 30 --connect-timeout 10 --max-redirs 3 --max-filesize 52428800)
+  if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
+    CURL_OPTS+=(-k)
+  fi
+}

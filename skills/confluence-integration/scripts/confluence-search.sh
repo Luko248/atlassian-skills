@@ -19,17 +19,22 @@ if [[ -z "${CONFLUENCE_URL:-}" || -z "${CONFLUENCE_API_TOKEN:-}" ]]; then
   exit 1
 fi
 
+# Validate numeric parameter
+if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
+  echo '{"error": "LIMIT must be a positive integer"}' >&2
+  exit 1
+fi
+
 # Clamp limit
 if (( LIMIT < 1 )); then LIMIT=1; fi
 if (( LIMIT > 100 )); then LIMIT=100; fi
 
-CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
-  CURL_OPTS+=(-k)
-fi
+_validate_url "CONFLUENCE_URL" "$CONFLUENCE_URL"
+_validate_token "CONFLUENCE_API_TOKEN" "$CONFLUENCE_API_TOKEN"
+_build_curl_opts
 
-# URL-encode the CQL query
-ENCODED_CQL=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip()))" <<< "$CQL")
+# URL-encode the CQL query safely via stdin
+ENCODED_CQL=$(printf '%s' "$CQL" | python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))")
 
 URL="${CONFLUENCE_URL}/rest/api/content/search?cql=${ENCODED_CQL}&limit=${LIMIT}"
 

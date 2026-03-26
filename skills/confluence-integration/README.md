@@ -68,6 +68,27 @@ If credentials are correct, you'll see a JSON response with search results.
 
 All tools are **read-only** — they only use HTTP GET requests.
 
+## Security
+
+All scripts are hardened with multiple layers of protection:
+
+- **Read-only by design** — only HTTP GET requests, no write operations exist in the codebase
+- **Input validation** — page IDs must be numeric, CQL limit must be a positive integer, expand parameters are restricted to safe characters (`a-z`, `.`, `,`, `-`)
+- **Credential protection** — `.env` loader only reads an allowlist of known variable names; all other keys are ignored. Values containing control characters (e.g. `\n`, `\r`) are rejected to prevent HTTP header injection
+- **File permission checks** — warns if your `.env` file is world-readable and suggests `chmod 600`
+- **No shell interpolation in payloads** — all user input is passed to `python3` via stdin, never interpolated into code strings
+- **URL validation** — `CONFLUENCE_URL` is validated against a strict pattern before use
+- **Token validation** — `CONFLUENCE_API_TOKEN` is checked for control characters and whitespace
+- **Curl hardening** — all requests enforce `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, and `--max-filesize 50MB` to prevent slow-rate attacks, open redirects, and memory exhaustion
+- **URL encoding** — CQL queries and expand parameters are safely encoded via `python3 urllib.parse.quote`
+
+### Best practices
+
+- Set `.env` permissions to `600`: `chmod 600 ~/.env`
+- Use a dedicated read-only API token with minimal scope
+- Set an expiry date on your token and rotate regularly
+- Keep `VALIDATE_SSL=true` (default) in production — only disable for local dev with self-signed certs
+
 ## Troubleshooting
 
 | Problem | Solution |

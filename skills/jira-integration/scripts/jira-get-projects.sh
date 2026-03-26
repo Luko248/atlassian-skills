@@ -13,10 +13,9 @@ if [[ -z "${JIRA_URL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
   exit 1
 fi
 
-CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
-  CURL_OPTS+=(-k)
-fi
+_validate_url "JIRA_URL" "$JIRA_URL"
+_validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
+_build_curl_opts
 
 URL="${JIRA_URL}/rest/api/2/project"
 

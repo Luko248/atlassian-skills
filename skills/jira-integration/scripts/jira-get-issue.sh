@@ -11,15 +11,20 @@ source "$SCRIPT_DIR/load-env.sh"
 
 ISSUE_KEY="${1:?Usage: jira-get-issue.sh <ISSUE_KEY>}"
 
+# Validate issue key format (e.g. PROJ-123)
+if [[ ! "$ISSUE_KEY" =~ ^[A-Za-z][A-Za-z0-9_]*-[0-9]+$ ]]; then
+  echo '{"error": "Invalid issue key format. Expected: PROJECT-123"}' >&2
+  exit 1
+fi
+
 if [[ -z "${JIRA_URL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
   echo '{"error": "JIRA_URL and JIRA_API_TOKEN must be set in .env or environment"}' >&2
   exit 1
 fi
 
-CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
-  CURL_OPTS+=(-k)
-fi
+_validate_url "JIRA_URL" "$JIRA_URL"
+_validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
+_build_curl_opts
 
 URL="${JIRA_URL}/rest/api/2/issue/${ISSUE_KEY}?fields=summary,description"
 

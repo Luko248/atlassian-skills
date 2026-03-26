@@ -21,27 +21,37 @@ if [[ -z "${JIRA_URL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
   exit 1
 fi
 
+# Validate numeric parameters
+if ! [[ "$MAX_RESULTS" =~ ^[0-9]+$ ]]; then
+  echo '{"error": "MAX_RESULTS must be a positive integer"}' >&2
+  exit 1
+fi
+if ! [[ "$START_AT" =~ ^[0-9]+$ ]]; then
+  echo '{"error": "START_AT must be a non-negative integer"}' >&2
+  exit 1
+fi
+
 # Clamp max results
 if (( MAX_RESULTS < 1 )); then MAX_RESULTS=1; fi
 if (( MAX_RESULTS > 1000 )); then MAX_RESULTS=1000; fi
 
-CURL_OPTS=(-s -S --max-time 60 --connect-timeout 30)
-if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
-  CURL_OPTS+=(-k)
-fi
+_validate_url "JIRA_URL" "$JIRA_URL"
+_validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
+_build_curl_opts
 
 URL="${JIRA_URL}/rest/api/2/search"
 
-# Use POST to avoid URL length limits with complex JQL
-PAYLOAD=$(cat <<EOF
-{
-  "jql": $(printf '%s' "$JQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),
-  "startAt": ${START_AT},
-  "maxResults": ${MAX_RESULTS},
-  "fields": ["summary", "status", "assignee", "reporter", "priority", "issuetype", "created", "updated", "project"]
-}
-EOF
-)
+# Build JSON payload safely via python3 (prevents injection via JQL string)
+PAYLOAD=$(python3 -c "
+import json, sys
+jql = sys.stdin.read()
+print(json.dumps({
+    'jql': jql,
+    'startAt': int(sys.argv[1]),
+    'maxResults': int(sys.argv[2]),
+    'fields': ['summary', 'status', 'assignee', 'reporter', 'priority', 'issuetype', 'created', 'updated', 'project']
+}))
+" "$START_AT" "$MAX_RESULTS" <<< "$JQL")
 
 curl "${CURL_OPTS[@]}" \
   -X POST \
