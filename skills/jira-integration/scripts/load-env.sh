@@ -164,7 +164,7 @@ _validate_token() {
 
 # Build common curl options with security defaults
 _build_curl_opts() {
-  CURL_OPTS=(-s -S --max-time 30 --connect-timeout 10 --max-redirs 3 --max-filesize 52428800)
+  CURL_OPTS=(-s -S --max-time 30 --connect-timeout 10 --max-redirs 3 --max-filesize 52428800 --proto =https --proto-redir =https)
   if [[ "${VALIDATE_SSL:-true}" == "false" ]]; then
     CURL_OPTS+=(-k)
   fi

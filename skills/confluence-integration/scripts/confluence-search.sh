@@ -34,7 +34,7 @@ _validate_token "CONFLUENCE_API_TOKEN" "$CONFLUENCE_API_TOKEN"
 _build_curl_opts
 
 # URL-encode the CQL query safely via stdin
-ENCODED_CQL=$(printf '%s' "$CQL" | python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))")
+ENCODED_CQL=$(printf '%s' "$CQL" | python3 -S -E -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))")
 
 URL="${CONFLUENCE_URL}/rest/api/content/search?cql=${ENCODED_CQL}&limit=${LIMIT}"
 

@@ -72,14 +72,29 @@ All tools are **read-only** — they only use HTTP GET requests.
 
 All scripts are hardened with multiple layers of protection:
 
-- **Read-only by design** — only HTTP GET requests, no write operations exist in the codebase
-- **Input validation** — page IDs must be numeric, CQL limit must be a positive integer, expand parameters are restricted to safe characters (`a-z`, `.`, `,`, `-`)
-- **Credential protection** — `.env` loader only reads an allowlist of known variable names; all other keys are ignored. Values containing control characters (e.g. `\n`, `\r`) are rejected to prevent HTTP header injection
-- **File permission checks** — warns if your `.env` file is world-readable and suggests `chmod 600`
-- **No shell interpolation in payloads** — all user input is passed to `python3` via stdin, never interpolated into code strings
-- **URL validation** — `CONFLUENCE_URL` is validated against a strict pattern before use
-- **Token validation** — `CONFLUENCE_API_TOKEN` is checked for control characters and whitespace
-- **Curl hardening** — all requests enforce `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, and `--max-filesize 50MB` to prevent slow-rate attacks, open redirects, and memory exhaustion
+### Network
+
+- **HTTPS-only** — all connections enforce `--proto =https --proto-redir =https`; HTTP is rejected at the curl level
+- **Curl hardening** — `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, `--max-filesize 50MB` prevent slow-rate attacks, open redirects, and memory exhaustion
+
+### Input validation
+
+- **Page IDs** must be numeric
+- **CQL limits** must be positive integers
+- **Expand parameters** are restricted to safe characters (`a-z`, `.`, `,`, `-`)
+- **URLs** are validated against a strict HTTPS pattern
+- **Tokens** are rejected if they contain control characters or whitespace
+
+### Credential protection
+
+- `.env` loader uses an **allowlist** — only known variable names (`CONFLUENCE_URL`, `CONFLUENCE_API_TOKEN`, etc.) are loaded; all other keys are ignored
+- Values containing **control characters** (`\n`, `\r`) are rejected to prevent HTTP header injection
+- **File permission check** — warns if `.env` is world-readable and suggests `chmod 600`
+
+### Code execution safety
+
+- **No shell interpolation** — all user input (CQL queries, expand params) is passed to python via `sys.stdin`, never interpolated into code strings
+- **Python hardened** — all python calls use `-S -E` flags to disable `PYTHONSTARTUP`, `PYTHONPATH`, and site-packages (prevents environment poisoning)
 - **URL encoding** — CQL queries and expand parameters are safely encoded via `python3 urllib.parse.quote`
 
 ### Best practices

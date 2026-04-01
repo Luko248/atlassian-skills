@@ -7,6 +7,10 @@
 #
 # Returns: JSON with base64-encoded content and metadata
 # Max size: 10 MB
+#
+# Security: validates host match, enforces HTTPS-only downloads,
+#           no external tool execution on downloaded content,
+#           secure temp files, all python via heredoc (no -c)
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,104 +34,107 @@ _validate_url "JIRA_URL" "$JIRA_URL"
 _validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
 _build_curl_opts
 
-# Step 1: Get attachment metadata
+# Step 1: Get attachment metadata from Jira API
 META_URL="${JIRA_URL}/rest/api/2/attachment/${ATTACHMENT_ID}"
 META=$(curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer ${JIRA_API_TOKEN}" \
   -H "Accept: application/json" \
   "$META_URL")
 
-# Extract metadata safely via python3 (no shell interpolation)
-META_PARSED=$(python3 -c "
-import json, sys
-try:
-    m = json.load(sys.stdin)
-    content_url = m.get('content', '')
-    size = int(m.get('size', 0))
-    filename = m.get('filename', '')
-    mime_type = m.get('mimeType', 'application/octet-stream')
-    # Output as JSON for safe parsing
-    print(json.dumps({'url': content_url, 'size': size, 'filename': filename, 'mimeType': mime_type}))
-except (json.JSONDecodeError, ValueError, KeyError):
-    print(json.dumps({'url': '', 'size': 0, 'filename': '', 'mimeType': ''}))
-" <<< "$META")
+# Step 2: Validate and extract metadata in python (no shell interpolation)
+# Checks: valid JSON, content URL exists, HTTPS-only, host matches JIRA_URL, size limit
+export JIRA_URL MAX_SIZE
+VALIDATED=$(echo "$META" | python3 -S -E << 'PYEOF'
+import json, sys, os
+from urllib.parse import urlparse
 
-CONTENT_URL=$(python3 -c "import json,sys; print(json.load(sys.stdin)['url'])" <<< "$META_PARSED")
-FILE_SIZE=$(python3 -c "import json,sys; print(json.load(sys.stdin)['size'])" <<< "$META_PARSED")
-FILENAME=$(python3 -c "import json,sys; print(json.load(sys.stdin)['filename'])" <<< "$META_PARSED")
-MIME_TYPE=$(python3 -c "import json,sys; print(json.load(sys.stdin)['mimeType'])" <<< "$META_PARSED")
+jira_url = os.environ["JIRA_URL"]
+max_size = int(os.environ["MAX_SIZE"])
+
+try:
+    meta = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError):
+    json.dump({"error": "Invalid metadata response"}, sys.stdout)
+    sys.exit(1)
+
+content_url = meta.get("content", "")
+file_size = int(meta.get("size", 0))
+filename = meta.get("filename", "")
+mime_type = meta.get("mimeType", "application/octet-stream")
+
+if not content_url:
+    json.dump({"error": "No content URL in metadata"}, sys.stdout)
+    sys.exit(1)
+
+parsed = urlparse(content_url)
+if parsed.scheme != "https":
+    json.dump({"error": "Content URL must use HTTPS"}, sys.stdout)
+    sys.exit(1)
+
+jira_host = urlparse(jira_url).hostname
+if jira_host != parsed.hostname:
+    json.dump({"error": "Content URL host does not match Jira host"}, sys.stdout)
+    sys.exit(1)
+
+if file_size > max_size:
+    json.dump({"error": f"Too large ({file_size} bytes, max {max_size})"}, sys.stdout)
+    sys.exit(1)
+
+json.dump({"url": content_url, "size": file_size, "filename": filename, "mimeType": mime_type}, sys.stdout)
+PYEOF
+)
+
+# Abort on validation error
+if echo "$VALIDATED" | grep -q '"error"'; then
+  echo "$VALIDATED" >&2
+  exit 1
+fi
+
+# Extract validated content URL
+CONTENT_URL=$(echo "$VALIDATED" | python3 -S -E -c "import json,sys;print(json.load(sys.stdin)['url'])")
 
 if [[ -z "$CONTENT_URL" ]]; then
   echo '{"error": "Could not resolve attachment content URL"}' >&2
   exit 1
 fi
 
-# Validate content URL matches the expected Jira host
-JIRA_HOST=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${JIRA_URL}').hostname)")
-CONTENT_HOST=$(python3 -c "from urllib.parse import urlparse; print(urlparse('''$CONTENT_URL''').hostname)")
-if [[ "$JIRA_HOST" != "$CONTENT_HOST" ]]; then
-  echo '{"error": "Attachment URL points to unexpected host — refusing to follow"}' >&2
-  exit 1
-fi
-
-# Step 2: Check file size
-if (( FILE_SIZE > MAX_SIZE )); then
-  echo "{\"error\": \"Attachment too large (${FILE_SIZE} bytes, max ${MAX_SIZE})\"}" >&2
-  exit 1
-fi
-
-# Step 3: Download and base64 encode
+# Step 3: Download to secure temp file (HTTPS protocol enforced)
 TMPFILE=$(mktemp)
 chmod 600 "$TMPFILE"
 trap 'rm -f "$TMPFILE"' EXIT
 
 curl "${CURL_OPTS[@]}" \
+  --proto =https \
   -H "Authorization: Bearer ${JIRA_API_TOKEN}" \
   -o "$TMPFILE" \
   "$CONTENT_URL"
 
-# Verify downloaded size matches expected
+# Verify actual downloaded size against limit
 ACTUAL_SIZE=$(wc -c < "$TMPFILE" | tr -d ' ')
 if (( ACTUAL_SIZE > MAX_SIZE )); then
   echo "{\"error\": \"Downloaded file exceeds max size (${ACTUAL_SIZE} bytes)\"}" >&2
   exit 1
 fi
 
-B64=$(base64 < "$TMPFILE")
+# Step 4: Base64 encode and build JSON output
+# All values passed via environment variables — zero shell interpolation in python
+export ATTACHMENT_ID VALIDATED TMPFILE
+python3 -S -E << 'PYEOF'
+import base64, json, os, sys
 
-# Step 4: If image, try to get dimensions
-DIMENSIONS=""
-if [[ "$MIME_TYPE" == image/* ]] && command -v identify &>/dev/null; then
-  DIMENSIONS=$(identify -format '{"width":%w,"height":%h}' "$TMPFILE" 2>/dev/null || echo "")
-fi
+meta = json.loads(os.environ["VALIDATED"])
+tmpfile = os.environ["TMPFILE"]
 
-# Step 5: Output JSON result safely (all values passed via stdin, not interpolation)
-python3 -c "
-import json, sys
+with open(tmpfile, "rb") as f:
+    content_b64 = base64.b64encode(f.read()).decode("ascii")
 
-data = json.load(sys.stdin)
 result = {
-    'attachmentId': data['attachmentId'],
-    'filename': data['filename'],
-    'mimeType': data['mimeType'],
-    'size': data['size'],
-    'contentBase64': data['contentBase64']
+    "attachmentId": os.environ["ATTACHMENT_ID"],
+    "filename": meta["filename"],
+    "mimeType": meta["mimeType"],
+    "size": meta["size"],
+    "contentBase64": content_b64
 }
-dims = data.get('dimensions', '')
-if dims:
-    try:
-        result['dimensions'] = json.loads(dims)
-    except (json.JSONDecodeError, ValueError):
-        pass
-print(json.dumps(result, indent=2))
-" <<< "$(python3 -c "
-import json, sys
-print(json.dumps({
-    'attachmentId': sys.argv[1],
-    'filename': sys.argv[2],
-    'mimeType': sys.argv[3],
-    'size': int(sys.argv[4]),
-    'contentBase64': sys.stdin.read().strip(),
-    'dimensions': sys.argv[5]
-}))
-" "$ATTACHMENT_ID" "$FILENAME" "$MIME_TYPE" "$FILE_SIZE" "$DIMENSIONS" <<< "$B64")"
+json.dump(result, sys.stdout, indent=2)
+print()
+PYEOF

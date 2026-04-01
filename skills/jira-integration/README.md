@@ -77,17 +77,38 @@ All tools are **read-only** — they only use HTTP GET (or POST for search queri
 
 All scripts are hardened with multiple layers of protection:
 
-- **Read-only by design** — only HTTP GET requests (POST for JQL search), no write operations exist in the codebase
-- **Input validation** — issue keys must match `PROJECT-123` format, attachment IDs must be numeric, search limits must be positive integers
-- **Credential protection** — `.env` loader only reads an allowlist of known variable names; all other keys are ignored. Values containing control characters (e.g. `\n`, `\r`) are rejected to prevent HTTP header injection
-- **File permission checks** — warns if your `.env` file is world-readable and suggests `chmod 600`
-- **No shell interpolation in payloads** — all user input (JQL queries, metadata) is passed to `python3` via stdin or `sys.argv`, never interpolated into code strings
-- **URL validation** — `JIRA_URL` is validated against a strict pattern before use
-- **Token validation** — `JIRA_API_TOKEN` is checked for control characters and whitespace
-- **Curl hardening** — all requests enforce `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, and `--max-filesize 50MB` to prevent slow-rate attacks, open redirects, and memory exhaustion
-- **Attachment host verification** — download URLs are verified to match the configured Jira hostname, preventing SSRF
-- **Secure temp files** — attachment downloads use `mktemp` with `chmod 600` and are cleaned up via `trap` on exit
-- **Post-download size check** — downloaded files are verified against the 10 MB limit after transfer
+### Network
+
+- **HTTPS-only** — all connections enforce `--proto =https --proto-redir =https`; HTTP is rejected at the curl level
+- **Curl hardening** — `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, `--max-filesize 50MB` prevent slow-rate attacks, open redirects, and memory exhaustion
+
+### Input validation
+
+- **Issue keys** must match `PROJECT-123` format
+- **Attachment IDs** must be numeric
+- **Search limits** must be positive integers
+- **URLs** are validated against a strict HTTPS pattern
+- **Tokens** are rejected if they contain control characters or whitespace
+
+### Credential protection
+
+- `.env` loader uses an **allowlist** — only known variable names (`JIRA_URL`, `JIRA_API_TOKEN`, etc.) are loaded; all other keys are ignored
+- Values containing **control characters** (`\n`, `\r`) are rejected to prevent HTTP header injection
+- **File permission check** — warns if `.env` is world-readable and suggests `chmod 600`
+
+### Code execution safety
+
+- **No shell interpolation** — all user input (JQL, metadata) is passed to python via `os.environ` or `sys.stdin`, never interpolated into code strings
+- **Python hardened** — all python calls use `-S -E` flags to disable `PYTHONSTARTUP`, `PYTHONPATH`, and site-packages (prevents environment poisoning)
+- **No external tools** — downloaded attachments are never passed to ImageMagick, ffprobe, or any processing tool; only base64-encoded for safe transport
+
+### Attachment downloads
+
+- **Host verification** — download URLs must match the configured `JIRA_URL` hostname (SSRF protection)
+- **HTTPS enforced** — content URLs must use `https://`; plain HTTP is rejected
+- **Secure temp files** — `mktemp` with `chmod 600`, cleaned up via `trap` on exit
+- **Post-download size check** — actual file size verified against the 10 MB limit after transfer
+- **Read-only processing** — files are only base64-encoded, never executed or parsed
 
 ### Best practices
 

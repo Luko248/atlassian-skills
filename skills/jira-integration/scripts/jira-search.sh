@@ -42,7 +42,7 @@ _build_curl_opts
 URL="${JIRA_URL}/rest/api/2/search"
 
 # Build JSON payload safely via python3 (prevents injection via JQL string)
-PAYLOAD=$(python3 -c "
+PAYLOAD=$(python3 -S -E -c "
 import json, sys
 jql = sys.stdin.read()
 print(json.dumps({
