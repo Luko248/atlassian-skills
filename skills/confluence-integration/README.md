@@ -29,14 +29,24 @@ This skill provides **read-only** access to Confluence. It can search pages and 
 
 ### 1. Create a `.env` file
 
-The skill looks for credentials in this order (first found wins):
+The skill detects your OS at load time and then looks for credentials in this order (first found wins):
 
-| Location | Path |
-|---|---|
-| **Global** (recommended) | `~/.env` |
-| **Project-level** (fallback) | `.env` in the git repository root |
+| Order | Location | Path |
+|---|---|---|
+| 1 | **System / user home** (recommended) | `~/.env` |
+| 2 | **Project-level** (fallback) | `.env` in the git repository root |
 
 `~` is your home directory — `/Users/<username>` on macOS, `/home/<username>` on Linux, `C:\Users\<username>` on Windows.
+
+On every run the loader prints a short diagnostic on stderr so you can see what it chose:
+
+```text
+# Detected OS: macOS — looking for system-level .env at /Users/<you>/.env
+# Hey — no .env at the system level (/Users/<you>/.env). Let's look in your project instead…
+# .env loaded from: /path/to/project/.env
+```
+
+If neither file is present you'll see a clear "No .env file found" message listing both candidate paths.
 
 ### 2. `.env` file contents
 

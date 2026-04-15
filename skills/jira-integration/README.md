@@ -29,14 +29,24 @@ This skill provides **read-only** access to Jira. It can search issues, read det
 
 ### 1. Create a `.env` file
 
-The skill looks for credentials in this order (first found wins):
+The skill detects your OS at load time and then looks for credentials in this order (first found wins):
 
-| Location | Path |
-|---|---|
-| **Global** (recommended) | `~/.env` |
-| **Project-level** (fallback) | `.env` in the git repository root |
+| Order | Location | Path |
+|---|---|---|
+| 1 | **System / user home** (recommended) | `~/.env` |
+| 2 | **Project-level** (fallback) | `.env` in the git repository root |
 
 `~` is your home directory — `/Users/<username>` on macOS, `/home/<username>` on Linux, `C:\Users\<username>` on Windows.
+
+On every run the loader prints a short diagnostic on stderr so you can see what it chose:
+
+```text
+# Detected OS: macOS — looking for system-level .env at /Users/<you>/.env
+# Hey — no .env at the system level (/Users/<you>/.env). Let's look in your project instead…
+# .env loaded from: /path/to/project/.env
+```
+
+If neither file is present you'll see a clear "No .env file found" message listing both candidate paths.
 
 ### 2. `.env` file contents
 
@@ -126,3 +136,18 @@ All scripts are hardened with multiple layers of protection:
 | SSL certificate errors | Set `VALIDATE_SSL=false` in `.env` |
 | `python3: command not found` | Install Python 3 for your OS |
 | Permission denied on scripts | Run `chmod +x skills/jira-integration/scripts/*.sh` |
+
+### A note on `jira-get-attachment-content.sh`
+
+The script emits all diagnostics and errors on **stderr** — stdout only ever
+contains the final JSON (or nothing at all on failure). If you are wrapping it
+from another program, **always check the exit code** instead of only looking at
+stdout; otherwise a failure surfaces as a silent empty response.
+
+```bash
+if ! out=$(bash scripts/jira-get-attachment-content.sh "$ID" 2>err.log); then
+  echo "attachment fetch failed:" >&2
+  cat err.log >&2
+  exit 1
+fi
+```

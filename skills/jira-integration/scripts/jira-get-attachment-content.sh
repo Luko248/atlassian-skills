@@ -43,8 +43,14 @@ META=$(curl "${CURL_OPTS[@]}" \
 
 # Step 2: Validate and extract metadata in python (no shell interpolation)
 # Checks: valid JSON, content URL exists, HTTPS-only, host matches JIRA_URL, size limit
-export JIRA_URL MAX_SIZE
-VALIDATED=$(echo "$META" | python3 -S -E << 'PYEOF'
+#
+# NOTE: metadata is passed via env var, NOT stdin. The construct
+#   echo "$META" | python3 << 'PYEOF' ... PYEOF
+# has two stdin redirections and bash resolves the heredoc last, so the
+# heredoc body wins and the piped data is silently discarded. Always
+# pass JSON into heredoc python blocks through the environment.
+export META JIRA_URL MAX_SIZE
+VALIDATED=$(python3 -S -E << 'PYEOF'
 import json, sys, os
 from urllib.parse import urlparse
 
@@ -52,7 +58,7 @@ jira_url = os.environ["JIRA_URL"]
 max_size = int(os.environ["MAX_SIZE"])
 
 try:
-    meta = json.load(sys.stdin)
+    meta = json.loads(os.environ["META"])
 except (json.JSONDecodeError, ValueError):
     json.dump({"error": "Invalid metadata response"}, sys.stdout)
     sys.exit(1)

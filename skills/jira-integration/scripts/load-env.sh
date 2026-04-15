@@ -5,14 +5,34 @@
 # Cross-platform support: Linux, macOS, Windows (Git Bash, WSL, Cygwin)
 #
 # Search order (first readable file wins):
-#   1. $HOME_DIR/.env                      (global)
-#   2. $PROJECT_ROOT/.env                  (project-level)
+#   1. $HOME_DIR/.env                      (system / user home — preferred)
+#   2. $PROJECT_ROOT/.env                  (project-level — fallback)
+#
+# Before searching, the loader detects the host OS and prints a short
+# notice so the user sees where the credentials are expected to live:
+#
+#   # Detected OS: macOS — looking for system-level .env at /Users/<user>/.env
+#   # Hey — no .env at the system level. Falling back to the project root…
+#   # .env loaded from: /path/to/project/.env
 #
 # Exports: JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN,
 #          CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_API_TOKEN,
-#          VALIDATE_SSL
+#          VALIDATE_SSL, _DETECTED_OS
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
+
+# Detect host OS first so every subsequent message can reference it.
+# Values: "macOS", "Linux", "Windows", "Unknown"
+_detect_os() {
+  local uname_s
+  uname_s="$(uname -s 2>/dev/null || echo Unknown)"
+  case "$uname_s" in
+    Darwin)                   echo "macOS"   ;;
+    Linux)                    echo "Linux"   ;;
+    MINGW*|MSYS*|CYGWIN*)     echo "Windows" ;;
+    *)                        echo "Unknown" ;;
+  esac
+}
 
 # Allowlist of environment variable names this loader will set
 readonly _ALLOWED_ENV_KEYS="JIRA_URL JIRA_USERNAME JIRA_API_TOKEN CONFLUENCE_URL CONFLUENCE_USERNAME CONFLUENCE_API_TOKEN VALIDATE_SSL"
@@ -33,9 +53,9 @@ _load_env_file() {
   fi
 
   # Warn if .env is world-readable (skip on Windows where stat behaves differently)
-  if command -v stat &>/dev/null && [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+  if command -v stat &>/dev/null && [[ "${_DETECTED_OS:-}" != "Windows" ]]; then
     local perms
-    if [[ "$(uname -s)" == "Darwin" ]]; then
+    if [[ "${_DETECTED_OS:-}" == "macOS" ]]; then
       perms=$(stat -f '%Lp' "$file" 2>/dev/null || echo "")
     else
       perms=$(stat -c '%a' "$file" 2>/dev/null || echo "")
@@ -103,27 +123,38 @@ _resolve_home() {
 
 _ENV_LOADED="${_ENV_LOADED:-false}"
 if [[ "$_ENV_LOADED" != "true" ]]; then
+  _DETECTED_OS="$(_detect_os)"
+  export _DETECTED_OS
+
   HOME_DIR="$(_resolve_home)"
   PROJECT_ROOT="$(_project_root)"
 
-  if [[ -z "$HOME_DIR" ]]; then
-    echo "# ERROR: Cannot determine home directory. Set \$HOME or \$USERPROFILE." >&2
-    echo "# Falling back to project-level .env only." >&2
-    ENV_CANDIDATES=("$PROJECT_ROOT/.env")
+  # Announce detected OS + where the system-level .env is expected.
+  if [[ -n "$HOME_DIR" ]]; then
+    echo "# Detected OS: ${_DETECTED_OS} — looking for system-level .env at ${HOME_DIR}/.env" >&2
   else
-    ENV_CANDIDATES=(
-      "$HOME_DIR/.env"
-      "$PROJECT_ROOT/.env"
-    )
+    echo "# Detected OS: ${_DETECTED_OS} — could not resolve home directory (set \$HOME or \$USERPROFILE)" >&2
   fi
 
+  # Try system-level first, then project-level. This keeps a single source
+  # of truth on a developer's machine (the home dir) while still allowing a
+  # per-project override when the user hasn't set a global credential file.
   DOTENV_USED=""
-  for candidate in "${ENV_CANDIDATES[@]}"; do
-    if _load_env_file "$candidate"; then
-      DOTENV_USED="$candidate"
-      break
+  SYSTEM_ENV=""
+  PROJECT_ENV="$PROJECT_ROOT/.env"
+
+  if [[ -n "$HOME_DIR" ]]; then
+    SYSTEM_ENV="$HOME_DIR/.env"
+    if _load_env_file "$SYSTEM_ENV"; then
+      DOTENV_USED="$SYSTEM_ENV"
+    else
+      echo "# Hey — no .env at the system level (${SYSTEM_ENV}). Let's look in your project instead…" >&2
     fi
-  done
+  fi
+
+  if [[ -z "$DOTENV_USED" ]] && _load_env_file "$PROJECT_ENV"; then
+    DOTENV_USED="$PROJECT_ENV"
+  fi
 
   if [[ -n "$DOTENV_USED" ]]; then
     echo "# .env loaded from: $DOTENV_USED" >&2
@@ -131,10 +162,16 @@ if [[ "$_ENV_LOADED" != "true" ]]; then
     echo "# ──────────────────────────────────────────────────────────────" >&2
     echo "# ERROR: No .env file found!" >&2
     echo "#" >&2
-    echo "# Create a .env file in one of these locations:" >&2
+    echo "# Detected OS: ${_DETECTED_OS}" >&2
     echo "#" >&2
-    echo "#   Global:  ~/.env" >&2
-    echo "#   Project: <project-root>/.env" >&2
+    echo "# Create a .env file in one of these locations (checked in order):" >&2
+    echo "#" >&2
+    if [[ -n "$SYSTEM_ENV" ]]; then
+      echo "#   1. System / user home:  $SYSTEM_ENV" >&2
+    else
+      echo "#   1. System / user home:  ~/.env (home directory could not be resolved)" >&2
+    fi
+    echo "#   2. Project root:        $PROJECT_ENV" >&2
     echo "#" >&2
     echo "# Or set credentials directly via environment variables." >&2
     echo "# ──────────────────────────────────────────────────────────────" >&2
