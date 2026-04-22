@@ -154,4 +154,4 @@ All scripts enforce the following protections at the shell level:
 - **Token validation** — `CONFLUENCE_API_TOKEN` must not contain control characters or whitespace
 - **Input format enforcement** — page IDs must be numeric, expand parameters restricted to `[a-zA-Z0-9.,_-]`, search limits must be integers
 - **Curl hardening** — `--max-time 30`, `--connect-timeout 10`, `--max-redirs 3`, `--max-filesize 50MB`
-- **No shell interpolation in payloads** — all user input passed to `python3` via stdin
+- **No shell interpolation in payloads** — CQL and expand parameters are passed as discrete arguments to `curl --data-urlencode`; they are never concatenated into the URL or a shell string. No Python is invoked by the Confluence scripts, which keeps the skill working on Windows even when `python3` resolves to the Microsoft Store App Execution Alias stub.

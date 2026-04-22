@@ -259,4 +259,5 @@ All scripts enforce the following protections at the shell level:
 - **Attachment host verification** — download URLs are verified to match the configured Jira hostname (SSRF protection)
 - **Filename sanitization** — attachment filenames are stripped of path separators, hidden-file prefixes, and non-printable characters before being written to disk; the attachment ID is prepended to prevent collisions
 - **Staged downloads** — content is written to a `.partial` file and only renamed to the final name after the post-download size check passes; `trap` removes the staging file on any failure
-- **No shell interpolation in payloads** — all user input passed to `python3` via stdin or `sys.argv`
+- **No shell interpolation in payloads** — all user input passed to Python via stdin, `os.environ`, or `sys.argv` (never into a shell-interpolated command string)
+- **Windows-safe Python invocation** — scripts call the interpreter through the `PYTHON_BIN` array resolved by `load-env.sh::_require_python`, which prefers `py -3` on Windows to bypass the Microsoft Store `python.exe` App Execution Alias

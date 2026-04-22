@@ -33,12 +33,15 @@ _validate_url "CONFLUENCE_URL" "$CONFLUENCE_URL"
 _validate_token "CONFLUENCE_API_TOKEN" "$CONFLUENCE_API_TOKEN"
 _build_curl_opts
 
-# URL-encode the CQL query safely via stdin
-ENCODED_CQL=$(printf '%s' "$CQL" | python3 -S -E -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))")
-
-URL="${CONFLUENCE_URL}/rest/api/content/search?cql=${ENCODED_CQL}&limit=${LIMIT}"
+# Let curl URL-encode the CQL query via --data-urlencode + --get. This avoids
+# a Python dependency on Windows, where `python3` often resolves to the
+# Microsoft Store App Execution Alias stub even when Python is installed.
+URL="${CONFLUENCE_URL}/rest/api/content/search"
 
 curl "${CURL_OPTS[@]}" \
+  --get \
+  --data-urlencode "cql=${CQL}" \
+  --data-urlencode "limit=${LIMIT}" \
   -H "Authorization: Bearer ${CONFLUENCE_API_TOKEN}" \
   -H "Accept: application/json" \
   -H "Content-Type: application/json" \

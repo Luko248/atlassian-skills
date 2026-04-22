@@ -37,6 +37,7 @@ fi
 _validate_url "JIRA_URL" "$JIRA_URL"
 _validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
 _build_curl_opts
+_require_python
 
 # Step 1: Get attachment metadata from Jira API
 META_URL="${JIRA_URL}/rest/api/2/attachment/${ATTACHMENT_ID}"
@@ -55,7 +56,7 @@ META=$(curl "${CURL_OPTS[@]}" \
 # heredoc body wins and the piped data is silently discarded. Always
 # pass JSON into heredoc python blocks through the environment.
 export META JIRA_URL MAX_SIZE ATTACHMENT_ID
-VALIDATED=$(python3 -S -E << 'PYEOF'
+VALIDATED=$("${PYTHON_BIN[@]}" -S -E << 'PYEOF'
 import json, sys, os
 from urllib.parse import urlparse
 
@@ -119,8 +120,8 @@ if echo "$VALIDATED" | grep -q '"error"'; then
 fi
 
 # Extract validated content URL and target path
-CONTENT_URL=$(echo "$VALIDATED" | python3 -S -E -c "import json,sys;print(json.load(sys.stdin)['url'])")
-TARGET_PATH=$(echo "$VALIDATED" | python3 -S -E -c "import json,sys;print(json.load(sys.stdin)['target'])")
+CONTENT_URL=$(echo "$VALIDATED" | "${PYTHON_BIN[@]}" -S -E -c "import json,sys;print(json.load(sys.stdin)['url'])")
+TARGET_PATH=$(echo "$VALIDATED" | "${PYTHON_BIN[@]}" -S -E -c "import json,sys;print(json.load(sys.stdin)['target'])")
 
 if [[ -z "$CONTENT_URL" || -z "$TARGET_PATH" ]]; then
   echo '{"error": "Could not resolve attachment content URL or target path"}' >&2
@@ -152,7 +153,7 @@ trap - EXIT
 
 # Step 4: Build JSON response with the saved path (no base64 in output)
 export ATTACHMENT_ID VALIDATED TARGET_PATH
-python3 -S -E << 'PYEOF'
+"${PYTHON_BIN[@]}" -S -E << 'PYEOF'
 import json, os, sys
 
 meta = json.loads(os.environ["VALIDATED"])

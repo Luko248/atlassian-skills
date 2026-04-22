@@ -206,3 +206,40 @@ _build_curl_opts() {
     CURL_OPTS+=(-k)
   fi
 }
+
+# Detect a usable Python 3 interpreter. Sets the PYTHON_BIN array so callers
+# can invoke Python consistently via "${PYTHON_BIN[@]}" -S -E -c '...'.
+#
+# On Windows `python` / `python3` commonly resolve to the Microsoft Store
+# "App Execution Alias" stub — a shim that exits with "Python was not found"
+# even when a real interpreter is installed and on PATH. The shim wins because
+# `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps` is typically ahead of
+# `C:\Program Files\Python3xx\` in PATH. To dodge it we prefer the Python
+# Launcher `py -3`, which is installed by the official Python MSI and is not
+# affected by the alias.
+_require_python() {
+  if [[ -n "${PYTHON_BIN+x}" ]] && (( ${#PYTHON_BIN[@]} > 0 )); then
+    return 0
+  fi
+
+  if [[ "${_DETECTED_OS:-}" == "Windows" ]] \
+     && command -v py >/dev/null 2>&1 \
+     && py -3 --version >/dev/null 2>&1; then
+    PYTHON_BIN=(py -3)
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1; then
+    PYTHON_BIN=(python3)
+    return 0
+  fi
+
+  if command -v python >/dev/null 2>&1 \
+     && python -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1; then
+    PYTHON_BIN=(python)
+    return 0
+  fi
+
+  echo '{"error": "Python 3 not found. Install Python 3 and make sure `py -3` (Windows), `python3`, or `python` is on PATH. On Windows, disable the Microsoft Store App Execution Alias for python.exe/python3.exe if the shim is shadowing your install."}' >&2
+  exit 1
+}

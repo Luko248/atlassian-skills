@@ -37,11 +37,14 @@ _validate_url "CONFLUENCE_URL" "$CONFLUENCE_URL"
 _validate_token "CONFLUENCE_API_TOKEN" "$CONFLUENCE_API_TOKEN"
 _build_curl_opts
 
-ENCODED_EXPAND=$(printf '%s' "$EXPAND" | python3 -S -E -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))")
-
-URL="${CONFLUENCE_URL}/rest/api/content/${PAGE_ID}?expand=${ENCODED_EXPAND}"
+# Let curl URL-encode the expand parameter via --data-urlencode + --get. This
+# avoids a Python dependency on Windows, where `python3` often resolves to the
+# Microsoft Store App Execution Alias stub even when Python is installed.
+URL="${CONFLUENCE_URL}/rest/api/content/${PAGE_ID}"
 
 curl "${CURL_OPTS[@]}" \
+  --get \
+  --data-urlencode "expand=${EXPAND}" \
   -H "Authorization: Bearer ${CONFLUENCE_API_TOKEN}" \
   -H "Accept: application/json" \
   -H "Content-Type: application/json" \

@@ -13,8 +13,7 @@ This skill provides **read-only** access to Confluence. It can search pages and 
 ## Prerequisites
 
 - `bash` (v4+ recommended, v3.2+ on macOS works)
-- `curl`
-- `python3` (for URL encoding)
+- `curl` (URL encoding is handled entirely by `curl --data-urlencode`; no Python needed for Confluence)
 - A Confluence instance with API access and a Personal Access Token (Bearer token)
 
 ### How to create a Confluence API token
@@ -103,9 +102,8 @@ All scripts are hardened with multiple layers of protection:
 
 ### Code execution safety
 
-- **No shell interpolation** — all user input (CQL queries, expand params) is passed to python via `sys.stdin`, never interpolated into code strings
-- **Python hardened** — all python calls use `-S -E` flags to disable `PYTHONSTARTUP`, `PYTHONPATH`, and site-packages (prevents environment poisoning)
-- **URL encoding** — CQL queries and expand parameters are safely encoded via `python3 urllib.parse.quote`
+- **No shell interpolation** — CQL queries and expand parameters are never concatenated into the URL; they are passed as discrete arguments to `curl --data-urlencode`, which handles encoding in a single trusted process
+- **URL encoding** — CQL queries and expand parameters are safely encoded by curl via `--get --data-urlencode`, removing the Python dependency that previously caused problems on Windows (see Troubleshooting)
 
 ### Best practices
 
@@ -121,5 +119,6 @@ All scripts are hardened with multiple layers of protection:
 | `No .env file found` | Create `.env` at `~/.env` or in your project root |
 | `CONFLUENCE_URL and CONFLUENCE_API_TOKEN must be set` | Add required variables to your `.env` |
 | SSL certificate errors | Set `VALIDATE_SSL=false` in `.env` |
-| `python3: command not found` | Install Python 3 for your OS |
 | Permission denied on scripts | Run `chmod +x skills/confluence-integration/scripts/*.sh` |
+
+The Confluence scripts do not call Python — URL encoding runs inside `curl`. If you hit a Python-related error here, it is coming from a different tool in your pipeline.

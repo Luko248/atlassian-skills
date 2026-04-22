@@ -14,7 +14,10 @@ This skill provides **read-only** access to Jira. It can search issues, read det
 
 - `bash` (v4+ recommended, v3.2+ on macOS works)
 - `curl`
-- `python3` (for JSON encoding)
+- A Python 3 interpreter (used for safe JSON payload construction and attachment metadata validation). The scripts auto-detect the best available interpreter in this order:
+  - **Windows:** `py -3` (the Python Launcher, installed by the official Python MSI — bypasses the Microsoft Store App Execution Alias stub)
+  - `python3`
+  - `python` (verified to be Python 3.x at runtime)
 - A Jira instance with API access and a Personal Access Token (Bearer token)
 
 ### How to create a Jira API token
@@ -110,6 +113,7 @@ All scripts are hardened with multiple layers of protection:
 
 - **No shell interpolation** — all user input (JQL, metadata) is passed to python via `os.environ` or `sys.stdin`, never interpolated into code strings
 - **Python hardened** — all python calls use `-S -E` flags to disable `PYTHONSTARTUP`, `PYTHONPATH`, and site-packages (prevents environment poisoning)
+- **Windows-safe interpreter selection** — `load-env.sh::_require_python` prefers the Python Launcher `py -3` on Windows so the Microsoft Store App Execution Alias (`WindowsApps\python.exe`) never shadows the real interpreter
 - **No external tools** — downloaded attachments are never passed to ImageMagick, ffprobe, or any processing tool; they are only written to disk for the user to inspect
 
 ### Attachment downloads
@@ -136,7 +140,8 @@ All scripts are hardened with multiple layers of protection:
 | `No .env file found` | Create `.env` at `~/.env` or in your project root |
 | `JIRA_URL and JIRA_API_TOKEN must be set` | Add required variables to your `.env` |
 | SSL certificate errors | Set `VALIDATE_SSL=false` in `.env` |
-| `python3: command not found` | Install Python 3 for your OS |
+| `Python 3 not found` | Install Python 3. On Windows, re-run the installer with **"Install launcher for all users"** checked so `py -3` is on PATH. |
+| **Windows:** `python --version` prints _"Python was not found"_ even though Python is installed | You are hitting the Microsoft Store **App Execution Alias**. The scripts already work around this by preferring `py -3`, so you usually don't need to do anything. If you want `python` / `python3` to work on the shell too: **Settings → Apps → Advanced app settings → App execution aliases** and turn off the `python.exe` and `python3.exe` aliases. Alternatively, move `C:\Program Files\Python3xx\` above `%LOCALAPPDATA%\Microsoft\WindowsApps` in PATH, or create a Git Bash wrapper at `~/bin/python3` containing `#!/usr/bin/env bash` and `exec py -3 "$@"`. |
 | Permission denied on scripts | Run `chmod +x skills/jira-integration/scripts/*.sh` |
 
 ### A note on `jira-get-attachment-content.sh`

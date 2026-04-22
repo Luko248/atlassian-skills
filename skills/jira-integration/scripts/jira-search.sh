@@ -38,11 +38,13 @@ if (( MAX_RESULTS > 1000 )); then MAX_RESULTS=1000; fi
 _validate_url "JIRA_URL" "$JIRA_URL"
 _validate_token "JIRA_API_TOKEN" "$JIRA_API_TOKEN"
 _build_curl_opts
+_require_python
 
 URL="${JIRA_URL}/rest/api/2/search"
 
-# Build JSON payload safely via python3 (prevents injection via JQL string)
-PAYLOAD=$(python3 -S -E -c "
+# Build JSON payload safely via Python (prevents injection via JQL string).
+# PYTHON_BIN resolves to `py -3` on Windows to sidestep the MS Store alias.
+PAYLOAD=$("${PYTHON_BIN[@]}" -S -E -c "
 import json, sys
 jql = sys.stdin.read()
 print(json.dumps({
