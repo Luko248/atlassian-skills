@@ -77,7 +77,7 @@ If credentials are correct, you'll see a JSON array of projects.
 | `jira-get-fields-max.sh <KEY>` | Get issue with all fields |
 | `jira-get-comments.sh <KEY>` | Get all issue comments |
 | `jira-get-attachments.sh <KEY>` | Get attachment metadata |
-| `jira-get-attachment-content.sh <ID>` | Download attachment (base64, max 10 MB) |
+| `jira-get-attachment-content.sh <ID>` | Download attachment to `./tmp/<ID>_<filename>` (max 10 MB) |
 | `jira-search.sh "<JQL>" [limit] [offset]` | Search issues with JQL |
 | `jira-get-projects.sh` | List all projects |
 
@@ -110,15 +110,17 @@ All scripts are hardened with multiple layers of protection:
 
 - **No shell interpolation** — all user input (JQL, metadata) is passed to python via `os.environ` or `sys.stdin`, never interpolated into code strings
 - **Python hardened** — all python calls use `-S -E` flags to disable `PYTHONSTARTUP`, `PYTHONPATH`, and site-packages (prevents environment poisoning)
-- **No external tools** — downloaded attachments are never passed to ImageMagick, ffprobe, or any processing tool; only base64-encoded for safe transport
+- **No external tools** — downloaded attachments are never passed to ImageMagick, ffprobe, or any processing tool; they are only written to disk for the user to inspect
 
 ### Attachment downloads
 
 - **Host verification** — download URLs must match the configured `JIRA_URL` hostname (SSRF protection)
 - **HTTPS enforced** — content URLs must use `https://`; plain HTTP is rejected
-- **Secure temp files** — `mktemp` with `chmod 600`, cleaned up via `trap` on exit
+- **Saved to `./tmp/`** — attachments are written to `tmp/<ATTACHMENT_ID>_<filename>` relative to the current working directory
+- **Filename sanitization** — path separators, hidden-file prefixes (`.`), null bytes, and non-printable characters are stripped from the filename before it is written to disk
+- **Staged downloads** — content lands in a `.partial` file and is only renamed to the final name after the size check passes; `trap` removes the staging file if anything fails
 - **Post-download size check** — actual file size verified against the 10 MB limit after transfer
-- **Read-only processing** — files are only base64-encoded, never executed or parsed
+- **Read-only processing** — files are only written to disk, never executed, parsed, or passed to external processing tools
 
 ### Best practices
 

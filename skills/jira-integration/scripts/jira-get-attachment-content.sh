@@ -5,12 +5,16 @@
 # Usage: jira-get-attachment-content.sh <ATTACHMENT_ID>
 # Example: jira-get-attachment-content.sh 12345
 #
-# Returns: JSON with base64-encoded content and metadata
-# Max size: 10 MB
+# Saves the attachment to ./tmp/<ATTACHMENT_ID>_<filename> relative
+# to the current working directory and prints JSON with the saved
+# path and metadata. Max size: 10 MB.
 #
 # Security: validates host match, enforces HTTPS-only downloads,
+#           filename sanitized to prevent path traversal,
+#           partial downloads written to a .partial staging file
+#           and only promoted on successful size check,
 #           no external tool execution on downloaded content,
-#           secure temp files, all python via heredoc (no -c)
+#           all python via heredoc (no -c)
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,21 +45,23 @@ META=$(curl "${CURL_OPTS[@]}" \
   -H "Accept: application/json" \
   "$META_URL")
 
-# Step 2: Validate and extract metadata in python (no shell interpolation)
-# Checks: valid JSON, content URL exists, HTTPS-only, host matches JIRA_URL, size limit
+# Step 2: Validate metadata, sanitize filename, and derive target path
+# Checks: valid JSON, content URL exists, HTTPS-only, host matches JIRA_URL,
+#         size limit, filename stripped of path components / hidden-file prefix.
 #
 # NOTE: metadata is passed via env var, NOT stdin. The construct
 #   echo "$META" | python3 << 'PYEOF' ... PYEOF
 # has two stdin redirections and bash resolves the heredoc last, so the
 # heredoc body wins and the piped data is silently discarded. Always
 # pass JSON into heredoc python blocks through the environment.
-export META JIRA_URL MAX_SIZE
+export META JIRA_URL MAX_SIZE ATTACHMENT_ID
 VALIDATED=$(python3 -S -E << 'PYEOF'
 import json, sys, os
 from urllib.parse import urlparse
 
 jira_url = os.environ["JIRA_URL"]
 max_size = int(os.environ["MAX_SIZE"])
+attachment_id = os.environ["ATTACHMENT_ID"]
 
 try:
     meta = json.loads(os.environ["META"])
@@ -86,7 +92,23 @@ if file_size > max_size:
     json.dump({"error": f"Too large ({file_size} bytes, max {max_size})"}, sys.stdout)
     sys.exit(1)
 
-json.dump({"url": content_url, "size": file_size, "filename": filename, "mimeType": mime_type}, sys.stdout)
+# Sanitize filename — prevent path traversal, hidden files, control chars.
+safe = filename.replace("\\", "/").split("/")[-1]
+safe = "".join(c for c in safe if c.isprintable() and c != "\x00")
+safe = safe.lstrip(".").strip()
+if safe in ("", ".", ".."):
+    safe = f"attachment-{attachment_id}"
+
+target = os.path.join("tmp", f"{attachment_id}_{safe}")
+
+json.dump({
+    "url": content_url,
+    "size": file_size,
+    "filename": filename,
+    "safeFilename": safe,
+    "mimeType": mime_type,
+    "target": target
+}, sys.stdout)
 PYEOF
 )
 
@@ -96,50 +118,54 @@ if echo "$VALIDATED" | grep -q '"error"'; then
   exit 1
 fi
 
-# Extract validated content URL
+# Extract validated content URL and target path
 CONTENT_URL=$(echo "$VALIDATED" | python3 -S -E -c "import json,sys;print(json.load(sys.stdin)['url'])")
+TARGET_PATH=$(echo "$VALIDATED" | python3 -S -E -c "import json,sys;print(json.load(sys.stdin)['target'])")
 
-if [[ -z "$CONTENT_URL" ]]; then
-  echo '{"error": "Could not resolve attachment content URL"}' >&2
+if [[ -z "$CONTENT_URL" || -z "$TARGET_PATH" ]]; then
+  echo '{"error": "Could not resolve attachment content URL or target path"}' >&2
   exit 1
 fi
 
-# Step 3: Download to secure temp file (HTTPS protocol enforced)
-TMPFILE=$(mktemp)
-chmod 600 "$TMPFILE"
-trap 'rm -f "$TMPFILE"' EXIT
+# Step 3: Download to ./tmp/<id>_<filename>.partial, promote to final name
+# only after size check passes. Staging file is removed on any failure.
+mkdir -p tmp
+
+STAGING="${TARGET_PATH}.partial"
+trap 'rm -f "$STAGING"' EXIT
 
 curl "${CURL_OPTS[@]}" \
   --proto =https \
   -H "Authorization: Bearer ${JIRA_API_TOKEN}" \
-  -o "$TMPFILE" \
+  -o "$STAGING" \
   "$CONTENT_URL"
 
 # Verify actual downloaded size against limit
-ACTUAL_SIZE=$(wc -c < "$TMPFILE" | tr -d ' ')
+ACTUAL_SIZE=$(wc -c < "$STAGING" | tr -d ' ')
 if (( ACTUAL_SIZE > MAX_SIZE )); then
   echo "{\"error\": \"Downloaded file exceeds max size (${ACTUAL_SIZE} bytes)\"}" >&2
   exit 1
 fi
 
-# Step 4: Base64 encode and build JSON output
-# All values passed via environment variables — zero shell interpolation in python
-export ATTACHMENT_ID VALIDATED TMPFILE
+mv -f "$STAGING" "$TARGET_PATH"
+trap - EXIT
+
+# Step 4: Build JSON response with the saved path (no base64 in output)
+export ATTACHMENT_ID VALIDATED TARGET_PATH
 python3 -S -E << 'PYEOF'
-import base64, json, os, sys
+import json, os, sys
 
 meta = json.loads(os.environ["VALIDATED"])
-tmpfile = os.environ["TMPFILE"]
-
-with open(tmpfile, "rb") as f:
-    content_b64 = base64.b64encode(f.read()).decode("ascii")
+target = os.environ["TARGET_PATH"]
 
 result = {
     "attachmentId": os.environ["ATTACHMENT_ID"],
     "filename": meta["filename"],
+    "savedAs": meta["safeFilename"],
     "mimeType": meta["mimeType"],
     "size": meta["size"],
-    "contentBase64": content_b64
+    "path": target,
+    "absolutePath": os.path.abspath(target)
 }
 json.dump(result, sys.stdout, indent=2)
 print()
