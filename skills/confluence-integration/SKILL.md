@@ -85,14 +85,15 @@ bash skills/confluence-integration/scripts/confluence-get-page.sh <PAGE_ID> [EXP
 ```
 
 **Arguments:**
-| Argument | Required | Default                        | Description                                      |
-|----------|----------|--------------------------------|--------------------------------------------------|
-| PAGE_ID  | Yes      | —                              | Numeric Confluence page ID                       |
-| EXPAND   | No       | `body.storage,version,space`   | Comma-separated fields to expand                 |
+| Argument | Required | Default                                  | Description                                      |
+|----------|----------|------------------------------------------|--------------------------------------------------|
+| PAGE_ID  | Yes      | —                                        | Numeric Confluence page ID                       |
+| EXPAND   | No       | `body.view,body.storage,version,space`   | Comma-separated fields to expand                 |
 
 **Available expand options:**
-- `body.storage` — page content in storage format (HTML)
-- `body.view` — page content in rendered view format
+- `body.view` — rendered HTML (mentions resolved to display names, dates formatted)
+- `body.storage` — raw storage XHTML (mentions as `<ri:user>`, dates as `<time>` macros)
+- `body.export_view` — rendered HTML optimised for export
 - `version` — version metadata
 - `space` — space information
 - `ancestors` — parent pages
@@ -100,16 +101,30 @@ bash skills/confluence-integration/scripts/confluence-get-page.sh <PAGE_ID> [EXP
 - `history` — edit history
 - `metadata` — page metadata and labels
 
+**Important — `@user` mentions and `//date` directives:**
+
+These are Confluence editor directives that produce macros, not literal text. How they appear depends on the body format:
+
+| Directive in editor | In `body.storage` (raw)                                            | In `body.view` (rendered)                                  |
+|---------------------|--------------------------------------------------------------------|------------------------------------------------------------|
+| `@username`         | `<ac:link><ri:user ri:userkey="ff80…0001"/></ac:link>` (key only)  | `<a class="user-mention" …>Full Name</a>` (display name)   |
+| `//2026-05-05`      | `<time datetime="2026-05-05"/>`                                    | `<span class="date">5 May 2026</span>` (formatted)         |
+
+`body.storage` does **not** contain the human-readable username or formatted date — only an opaque `userkey`/`accountId` and ISO date. To read the actual names/dates a user wrote, you must request `body.view` (the default now includes it). When both are needed (e.g. parsing structure from storage but reading the names from view), keep both in `expand`.
+
 **Examples:**
 ```bash
-# Get page with default expansion (body, version, space)
+# Get page with default expansion (body.view + body.storage + version + space)
 bash skills/confluence-integration/scripts/confluence-get-page.sh 12345
 
 # Get page with ancestors and children
-bash skills/confluence-integration/scripts/confluence-get-page.sh 12345 "body.storage,version,ancestors,children"
+bash skills/confluence-integration/scripts/confluence-get-page.sh 12345 "body.view,body.storage,version,ancestors,children"
 
-# Get only the page body in view format
+# Get only the rendered body (best for reading @mentions and //dates as text)
 bash skills/confluence-integration/scripts/confluence-get-page.sh 12345 "body.view"
+
+# Get only the raw storage body (best for programmatic structure parsing)
+bash skills/confluence-integration/scripts/confluence-get-page.sh 12345 "body.storage"
 ```
 
 ---

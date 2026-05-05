@@ -14,7 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/load-env.sh"
 
 PAGE_ID="${1:?Usage: confluence-get-page.sh <PAGE_ID> [EXPAND]}"
-EXPAND="${2:-body.storage,version,space}"
+# Default to body.view because body.storage represents @user mentions as
+# <ri:user ri:userkey="..."/> and //date macros as <time datetime="..."/>,
+# i.e. the human-readable display name and rendered date are absent. body.view
+# is the rendered HTML where mentions resolve to display names and dates to
+# formatted strings.
+EXPAND="${2:-body.view,body.storage,version,space}"
 
 # Validate page ID is numeric
 if ! [[ "$PAGE_ID" =~ ^[0-9]+$ ]]; then
